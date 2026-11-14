@@ -1,0 +1,31 @@
+order,id,app,from,to,action,exact content (type it exactly; token first, then a space),mark time?
+1,W1,WhatsApp,Emulator,Counterpart,Text,G3-W1 meeting at the lab,yes
+2,W2,WhatsApp,Counterpart,Emulator,Text,G3-W2 confirmed,
+3,W3,WhatsApp,Emulator,Counterpart,Text,G3-W3 bring the invoice,
+4,W4,WhatsApp,Counterpart,Emulator,Text,G3-W4 ok see you,
+5,W5,WhatsApp,Emulator,Counterpart,Image with caption,G3-W5 photo of lab desk,
+6,W6,WhatsApp,Counterpart,Emulator,Image with caption,G3-W6 photo of whiteboard,
+7,W7,WhatsApp,Emulator,Counterpart,Voice call about 30 s (answer it),,
+8,W8,WhatsApp,n/a,n/a,Contact: counterpart saved in phone Contacts with first name G3-CONTACT (done once at setup),,
+9,W9,WhatsApp,Emulator,Counterpart,Text then Delete for everyone,G3-W9 delete me,yes (after deleting)
+10,T1,Telegram,Emulator,Counterpart,Text,G3-T1 meeting at the lab,yes
+11,T2,Telegram,Counterpart,Emulator,Text,G3-T2 confirmed,
+12,T3,Telegram,Emulator,Counterpart,Text,G3-T3 bring the invoice,
+13,T4,Telegram,Counterpart,Emulator,Text,G3-T4 ok see you,
+14,T5,Telegram,Emulator,Counterpart,Image with caption,G3-T5 photo of lab desk,
+15,T6,Telegram,Counterpart,Emulator,Image with caption,G3-T6 photo of whiteboard,
+16,T7,Telegram,Emulator,Counterpart,Voice call about 30 s (answer it),,
+17,T8,Telegram,n/a,n/a,Contact: counterpart added in Telegram with first name G3-CONTACT (done once at setup),,
+18,T9,Telegram,Emulator,Counterpart,Text then Delete also for counterpart,G3-T9 delete me,yes (after deleting)
+19,S1,Signal,Emulator,Counterpart,Text,G3-S1 meeting at the lab,yes
+20,S2,Signal,Counterpart,Emulator,Text,G3-S2 confirmed,
+21,S3,Signal,Emulator,Counterpart,Text,G3-S3 bring the invoice,
+22,S4,Signal,Counterpart,Emulator,Text,G3-S4 ok see you,
+23,S5,Signal,Emulator,Counterpart,Image with caption,G3-S5 photo of lab desk,
+24,S6,Signal,Counterpart,Emulator,Image with caption,G3-S6 photo of whiteboard,
+25,S7,Signal,Emulator,Counterpart,Voice call about 30 s (answer it),,
+26,S8,Signal,n/a,n/a,Contact: Signal reads the phone contact G3-CONTACT (nothing to do),,
+27,S9,Signal,Emulator,Counterpart,Text then Delete for everyone,G3-S9 delete me,yes (after deleting)
+28,W10,WhatsApp,Emulator,Counterpart,Disappearing messages ON (24 hours) then text,G3-W10 vanish,yes
+29,T10,Telegram,Emulator,Counterpart,New secret chat; self-destruct timer 1 hour; text; counterpart opens it,G3-T10 vanish,yes
+30,S10,Signal,Emulator,Counterpart,Disappearing messages 1 hour then text; counterpart opens it,G3-S10 vanish,yes

@@ -1,0 +1,9 @@
+# Large exhibits stay on the shared drive; their hashes are committed in logs/hash_log.csv
+evidence/*.tar
+evidence/*.ab
+evidence/*.crypt*
+evidence/*.backup
+work/
+tools/
+outputs/ALEAPP_*/
+.venv/
