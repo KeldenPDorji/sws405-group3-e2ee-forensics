@@ -7,3 +7,4 @@ work/
 tools/
 outputs/ALEAPP_*/
 .venv/
+apks/

@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
-"""SWS405 Group 3 analysis helper. Every report fits an 80x40 terminal.
+"""SWS405 Group 3 analysis helper (Signal). Every report fits an 80x40 terminal.
 
-  hash-add <file> <ID> <note>         hash an exhibit into logs/hash_log.csv
-  verify                              re-hash all exhibits + compare device vs host hashes
-  ab2tar <file.ab> <outdir>           unpack an adb backup (no Java needed)
-  sqlite-check <db>                   one-line "SQLite, N tables" check
-  storage <FS_ID> <SIG_DEC_ID>        where each app keeps its data + timestamp check
-  score <ADB_ID> <FS_ID> <WA_DEC_ID> <SIG_DEC_ID>
-                                      recovered items vs activity script, per acquisition
-  disappear <FS_BEFORE> <FS_AFTER> <SIG_BEFORE> <SIG_AFTER>
-                                      where deleted / disappearing messages survive
+  hash-add <file> <ID> <note>          hash an exhibit into logs/hash_log.csv
+  verify                               re-hash all exhibits + compare device vs host hashes
+  ab2tar <file.ab> <outdir>            unpack an adb backup (no Java needed)
+  sqlite-check <db>                    one-line "SQLite, N tables" check
+  storage <FS_ID> <BACKUP_ID>          where Signal keeps its data + timestamp check
+  score <ADB_ID> <FS_ID> <BACKUP_ID>   recovered items vs activity script, per acquisition
+  disappear <FS_BEFORE> <FS_AFTER> <BACKUP_BEFORE> <BACKUP_AFTER>
+                                       where deleted / disappearing / edited messages survive
 
-Databases are only ever opened through temporary copies, so nothing in work/
-or evidence/ is changed by an analysis run.
+Databases are only opened through temporary copies, so nothing in work/ or
+evidence/ is changed by an analysis run.
 """
 import csv
 import getpass
@@ -33,10 +32,9 @@ BT = timezone(timedelta(hours=6))          # Asia/Thimphu, no daylight saving
 HASH_LOG = os.path.join("logs", "hash_log.csv")
 ACT_LOG = os.path.join("logs", "activity_log.csv")
 FIELDS = ["evidence_id", "path", "size_bytes", "sha256", "time_utc+06:00", "host", "user", "event", "note"]
-PKG = {"W": "com.whatsapp", "T": "org.telegram.messenger", "S": "org.thoughtcrime.securesms"}
-APP = {"W": "WhatsApp", "T": "Telegram", "S": "Signal"}
-TOKEN_RE = re.compile(rb"G3-(CONTACT|[WTS]\d{1,2}(?= ))")
-TOKEN16_RE = re.compile("G3-(CONTACT|[WTS]\\d{1,2}(?= ))")
+PKG = "org.thoughtcrime.securesms"
+TOKEN_RE = re.compile(rb"G3-(CONTACT|S\d{1,2}(?= ))")
+TOKEN16_RE = re.compile("G3-(CONTACT|S\\d{1,2}(?= ))")
 
 
 # ----------------------------------------------------------------- utilities
@@ -73,9 +71,7 @@ class DbCopy:
     """Open a SQLite database through a temporary copy (with its -wal/-shm)."""
 
     def __init__(self, path):
-        self.path = path
-        self.tmp = None
-        self.con = None
+        self.path, self.tmp, self.con = path, None, None
 
     def __enter__(self):
         if not self.path or not os.path.isfile(self.path):
@@ -103,10 +99,6 @@ def tables(con):
     return [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")]
 
 
-def has_table(con, t):
-    return t in tables(con)
-
-
 def q1(con, sql, args=()):
     try:
         r = con.execute(sql, args).fetchone()
@@ -123,9 +115,9 @@ def is_sqlite(path):
         return False
 
 
-def rows_with(con, token):
-    """Tables whose live rows contain token (any column, text or blob)."""
-    needle = token.encode()
+def rows_with(con, needle_text):
+    """Tables whose live rows contain the text (any column, text or blob)."""
+    needle = needle_text.encode()
     hits = []
     for t in tables(con):
         try:
@@ -133,8 +125,7 @@ def rows_with(con, token):
         except sqlite3.DatabaseError:
             continue
         for c in cols:
-            n = q1(con, f'SELECT count(*) FROM "{t}" WHERE instr(CAST("{c}" AS BLOB), ?) > 0', (needle,))
-            if n:
+            if q1(con, f'SELECT count(*) FROM "{t}" WHERE instr(CAST("{c}" AS BLOB), ?) > 0', (needle,)):
                 hits.append(t)
                 break
     return hits
@@ -142,7 +133,6 @@ def rows_with(con, token):
 
 # ------------------------------------------------------- raw token scanning
 def scan_file(path):
-    """Set of token ids (W1, T10, CONTACT ...) present in the raw bytes of a file."""
     found = set()
     try:
         with open(path, "rb") as f:
@@ -153,29 +143,26 @@ def scan_file(path):
         found.update(m.group(1).decode() for m in TOKEN_RE.finditer(data))
     if b"G\x003\x00-\x00" in data:
         for off in (0, 1):
-            txt = data[off:].decode("utf-16-le", errors="ignore")
-            found.update(m.group(1) for m in TOKEN16_RE.finditer(txt))
+            found.update(m.group(1) for m in TOKEN16_RE.finditer(data[off:].decode("utf-16-le", errors="ignore")))
     return found
 
 
 def classify(rel):
-    """Return (owner, kind) for a path inside an acquisition folder."""
     r = rel.replace("\\", "/")
-    for p, pkg in PKG.items():
-        for pre in (f"data/data/{pkg}/", f"data/media/0/Android/media/{pkg}/",
-                    f"data/media/0/Android/data/{pkg}/", f"apps/{pkg}/"):
-            if r.startswith(pre):
-                return p, "app"
+    if r.startswith(f"data/data/{PKG}/") or r.startswith(f"apps/{PKG}/"):
+        return "app"
     if "notification_history" in r:
-        return None, "notif"
-    return None, "other"
+        return "notif"
+    if "com.android.providers.contacts" in r:
+        return "contacts"
+    return "other"
 
 
 _SCAN = {}
 
 
 def scan_tree(root):
-    """{token: [(owner, kind, relpath), ...]} for every file under root (cached per run)."""
+    """{token: [(kind, relpath), ...]} for every file under root (cached)."""
     if root in _SCAN:
         return _SCAN[root]
     idx = _SCAN[root] = {}
@@ -185,35 +172,13 @@ def scan_tree(root):
         for name in files:
             full = os.path.join(d, name)
             rel = os.path.relpath(full, root).replace("\\", "/")
-            toks = scan_file(full)
-            if toks:
-                owner, kind = classify(rel)
-                for t in toks:
-                    idx.setdefault(t, []).append((owner, kind, rel))
+            for t in scan_file(full):
+                idx.setdefault(t, []).append((classify(rel), rel))
     return idx
 
 
-def scan_single(path, owner):
-    return {t: [(owner, "app", os.path.basename(path))] for t in scan_file(path)} if path and os.path.isfile(path) else {}
-
-
-# ---------------------------------------------------------------- locations
-def wa_db(root):
-    return os.path.join(root, "data/data/com.whatsapp/databases/msgstore.db")
-
-
-def tg_db(root):
-    p = os.path.join(root, "data/data/org.telegram.messenger/files/cache4.db")
-    if os.path.isfile(p):
-        return p
-    for d, _, files in os.walk(os.path.join(root, "data/data/org.telegram.messenger/files")):
-        if "cache4.db" in files:
-            return os.path.join(d, "cache4.db")
-    return p
-
-
-def sig_dec(sid):
-    return os.path.join("work", sid, "database.sqlite") if sid and sid != "-" else None
+def bdb(bid):
+    return os.path.join("work", bid, "database.sqlite") if bid and bid != "-" else None
 
 
 def find_named(root, name):
@@ -264,7 +229,8 @@ def cmd_verify():
                 hh = sha256(host) if os.path.isfile(host) else ""
                 st = "MATCH" if hh == dh else ("MISSING" if not hh else "MISMATCH")
                 dok += st == "MATCH"
-                print(f"  {st:<8} {eid:<4} {dpath[-58:]}")
+                short = dpath.replace(f"/data/data/{PKG}/", "/data/data/<signal>/")
+                print(f"  {st:<8} {eid:<4} {short[-60:]}")
     print(f"\n{ok}/{len(rows)} exhibits unchanged since acquisition; {dok}/{dn} device hashes match host copies.")
     sys.exit(0 if ok == len(rows) and dok == dn else 1)
 
@@ -276,20 +242,21 @@ def cmd_ab2tar(ab, out):
             sys.exit("  not an Android backup file")
         if head[3] != b"none":
             sys.exit("  backup is password-encrypted; redo it with an empty password")
-        tar_path = os.path.splitext(ab)[0] + ".tar"
+        tpath = os.path.join("work", os.path.basename(os.path.splitext(ab)[0]) + ".tar")
         dec = zlib.decompressobj() if head[2] == b"1" else None
-        with open(os.path.join("work", os.path.basename(tar_path)), "wb") as t:
+        with open(tpath, "wb") as t:
             for chunk in iter(lambda: f.read(1 << 20), b""):
                 t.write(dec.decompress(chunk) if dec else chunk)
-    tpath = os.path.join("work", os.path.basename(tar_path))
     os.makedirs(out, exist_ok=True)
-    counts = {"W": 0, "T": 0, "S": 0, None: 0}
+    sig = other = 0
     try:
         with tarfile.open(tpath) as tf:
             for m in tf:
-                owner, _ = classify(m.name)
                 if m.isfile():
-                    counts[owner] += 1
+                    if classify(m.name) == "app":
+                        sig += 1
+                    else:
+                        other += 1
                 try:
                     tf.extract(m, out, filter="data") if hasattr(tarfile, "data_filter") else tf.extract(m, out)
                 except Exception:
@@ -297,19 +264,22 @@ def cmd_ab2tar(ab, out):
     except tarfile.ReadError:
         pass
     os.remove(tpath)
-    print(f"  adb backup contents: WhatsApp {counts['W']} files, Telegram {counts['T']}, "
-          f"Signal {counts['S']}, other {counts[None]}")
+    print(f"  adb backup contents: Signal {sig} files, other apps {other} files")
 
 
 def cmd_sqlite_check(db):
     with DbCopy(db) as con:
-        print(f"SQLite, {len(tables(con))} tables" if con else "not a readable SQLite database")
+        if not con:
+            print("not a readable SQLite database")
+            return
+        n = q1(con, "SELECT count(*) FROM message") if "message" in tables(con) else None
+        print(f"SQLite, {len(tables(con))} tables" + (f", {n} messages" if n is not None else ""))
 
 
-def cmd_storage(fs, sdec):
+def cmd_storage(fs, bk):
     root = os.path.join("work", fs)
-    print(f"Where each app keeps its data (acquisition {fs}, extracted copy)")
-    print(f"{'app':<9}{'item':<35}{'size':>10}  format")
+    print(f"Where Signal keeps its data (acquisition {fs}, extracted copy)")
+    print(f"{'item':<44}{'size':>10}  format")
 
     def fmt(path):
         if not os.path.exists(path):
@@ -329,27 +299,30 @@ def cmd_storage(fs, sdec):
                 return size, f"SQLite 3, {len(tables(con)) if con else '?'} tables"
         if head.startswith(b"<?xml"):
             return size, "XML (plain text)"
-        return size, "encrypted, not SQLite" if path.endswith(".db") else "binary"
+        return size, "encrypted, not SQLite" if ".db" in path else "binary"
 
-    W, T, S = (f"data/data/{PKG[k]}" for k in "WTS")
+    S = f"data/data/{PKG}"
     items = [
-        ("WhatsApp", f"{W}/databases/msgstore.db", "databases/msgstore.db"),
-        ("WhatsApp", f"{W}/databases/wa.db", "databases/wa.db"),
-        ("WhatsApp", f"{W}/files/key", "files/key (backup key)"),
-        ("WhatsApp", "data/media/0/Android/media/com.whatsapp/WhatsApp/Media", "shared storage: WhatsApp/Media"),
-        ("WhatsApp", "data/media/0/Android/media/com.whatsapp/WhatsApp/Databases", "shared storage: WhatsApp/Databases"),
-        ("Telegram", os.path.relpath(tg_db(root), root), "files/cache4.db"),
-        ("Telegram", f"{T}/shared_prefs", "shared_prefs/"),
-        ("Telegram", "data/media/0/Android/data/org.telegram.messenger/files/Telegram", "shared storage: Telegram/"),
-        ("Signal", f"{S}/databases/signal.db", "databases/signal.db"),
-        ("Signal", f"{S}/shared_prefs/org.thoughtcrime.securesms_preferences.xml", "shared_prefs/..._preferences.xml"),
-        ("Signal", f"{S}/app_parts", "app_parts/ (attachments)"),
-        ("Android", "data/system_ce/0/notification_history", "notification_history/"),
-        ("Android", "data/data/com.android.providers.contacts/databases/contacts2.db", "contacts2.db (phone contacts)"),
+        (f"{S}/databases/signal.db", "Signal databases/signal.db"),
+        (f"{S}/databases/signal.db-wal", "Signal databases/signal.db-wal"),
+        (f"{S}/shared_prefs/{PKG}_preferences.xml", "Signal shared_prefs/..._preferences.xml"),
+        (f"{S}/app_parts", "Signal app_parts/ (attachments)"),
+        (f"{S}/app_avatars", "Signal app_avatars/"),
+        ("data/media/0/Download", "shared storage: Download/ (backups)"),
+        ("data/media/0/DCIM", "shared storage: DCIM/ (camera photos)"),
+        ("data/system_ce/0/notification_history", "Android notification_history/"),
+        ("data/data/com.android.providers.contacts/databases/contacts2.db", "Android contacts2.db (phone contacts)"),
+        ("data/misc/keystore/persistent.sqlite", "Android keystore persistent.sqlite"),
     ]
-    for app, rel, label in items:
+    for rel, label in items:
         size, f = fmt(os.path.join(root, rel))
-        print(f"{app:<9}{label:<35}{size:>10}  {f}")
+        print(f"{label:<44}{size:>10}  {f}")
+    db = bdb(bk)
+    with DbCopy(db) as con:
+        n = q1(con, "SELECT count(*) FROM message") if con else None
+    print(f"{'decrypted backup ' + bk + ': database.sqlite':<44}"
+          f"{human(os.path.getsize(db)) if db and os.path.isfile(db) else '-':>10}  "
+          f"{'SQLite 3, ' + str(n) + ' messages' if n is not None else 'not readable'}")
 
     # ---- timestamps
     logged = {}
@@ -357,172 +330,134 @@ def cmd_storage(fs, sdec):
         with open(ACT_LOG, newline="", encoding="utf-8") as f:
             for r in csv.DictReader(f):
                 logged[r["id"]] = r["host_time_utc+06:00"]
-    print("\nTimestamps: first message of each app vs the time we logged it")
-    print(f"{'id':<4}{'raw value':<15}{'unit':<5}{'UTC':<10}{'UTC+06:00':<11}{'logged':<10}{'diff':>9}")
-    probes = [
-        ("W1", wa_db(root), "ms", ["SELECT timestamp FROM message WHERE text_data LIKE 'G3-W1 %'",
-                                   "SELECT timestamp FROM messages WHERE data LIKE 'G3-W1 %'"]),
-        ("T1", tg_db(root), "s", ["SELECT date FROM messages_v2 WHERE instr(data, CAST('G3-T1 ' AS BLOB)) > 0"]),
-        ("S1", sig_dec(sdec), "ms", ["SELECT date_sent FROM message WHERE body LIKE 'G3-S1 %'",
-                                     "SELECT date_sent FROM sms WHERE body LIKE 'G3-S1 %'"]),
-    ]
+    print(f"\nTimestamps in backup {bk} vs the time we logged each action")
+    print(f"{'id':<4}{'column':<15}{'raw value (ms)':<16}{'UTC':<10}{'UTC+06:00':<11}{'logged':<10}{'diff':>8}")
     day = None
-    for tid, db, unit, sqls in probes:
-        raw = None
-        with DbCopy(db) as con:
-            if con:
-                for s in sqls:
-                    raw = q1(con, s)
-                    if raw:
-                        break
-        if not raw:
-            print(f"{tid:<4}not found")
-            continue
-        dt = datetime.fromtimestamp(raw / (1000 if unit == "ms" else 1), timezone.utc)
-        loc = dt.astimezone(BT)
-        day = loc.strftime("%Y-%m-%d")
-        lg = logged.get(tid, "")
-        diff = ""
-        if lg:
-            lgdt = datetime.strptime(lg, "%Y-%m-%d %H:%M:%S").replace(tzinfo=BT)
-            diff = f"{(loc - lgdt).total_seconds():+.0f} s"
-        print(f"{tid:<4}{raw:<15}{unit:<5}{dt:%H:%M:%S}  {loc:%H:%M:%S}   {lg[11:] or '-':<10}{diff:>9}")
-    if day:
-        print(f"date {day}. WhatsApp, Signal: ms since 1970 UTC; Telegram: s since 1970 UTC")
-        print("diff = stored time minus the time we logged it (we logged just after sending)")
-
-
-def calls(kind, db):
     with DbCopy(db) as con:
-        if not con:
-            return None
-        if kind == "W":
-            return q1(con, "SELECT count(*) FROM call_log") if has_table(con, "call_log") else 0
-        if kind == "T":   # messageActionPhoneCall#80e11a7f, little-endian in the TL blob
-            return q1(con, "SELECT count(*) FROM messages_v2 WHERE instr(data, X'7f1ae180') > 0") \
-                if has_table(con, "messages_v2") else 0
-        if kind == "S":
-            if has_table(con, "call"):
-                return q1(con, "SELECT count(*) FROM call")
-            return q1(con, "SELECT count(*) FROM message WHERE (type & 31) IN (1,2,3,10,11)") or 0
+        for tid in ("S1", "S2"):
+            for col in ("date_sent", "date_received", "date_server"):
+                raw = q1(con, f"SELECT {col} FROM message WHERE body LIKE ?", (f"G3-{tid} %",)) if con else None
+                if not raw or raw <= 0:
+                    print(f"{tid:<4}{col:<15}{'-' if raw is None else raw}")
+                    continue
+                dt = datetime.fromtimestamp(raw / 1000, timezone.utc)
+                loc = dt.astimezone(BT)
+                day = loc.strftime("%Y-%m-%d")
+                lg = logged.get(tid, "")
+                diff = ""
+                if lg:
+                    diff = f"{(loc - datetime.strptime(lg, '%Y-%m-%d %H:%M:%S').replace(tzinfo=BT)).total_seconds():+.0f} s"
+                print(f"{tid:<4}{col:<15}{raw:<16}{dt:%H:%M:%S}  {loc:%H:%M:%S}   {lg[11:] or '-':<10}{diff:>8}")
+    if day:
+        print(f"date {day}. Signal stores ms since 1970 UTC. Bhutan = UTC+06:00, no DST")
+        print("S1 = sent by the emulator, S2 = received from G3-CONTACT. diff = stored-logged")
 
 
-def cmd_score(a, b, wa, sig):
+def cmd_score(a, b, c):
     roots = {"A": os.path.join("work", a), "B": os.path.join("work", b)}
     idx = {"A": scan_tree(roots["A"]), "B": scan_tree(roots["B"])}
-    cdb = {"W": os.path.join("work", wa, "msgstore.db"), "S": sig_dec(sig)}
-    idx_c = {k: scan_single(v, k) for k, v in cdb.items()}
+    cdb = bdb(c)
+    idx["C"] = {t: [("app", "database.sqlite")] for t in scan_file(cdb)} if cdb and os.path.isfile(cdb) else {}
 
-    def cell(col, p, tok):
-        hits = idx[col].get(tok, []) if col in idx else idx_c.get(p, {}).get(tok, [])
-        if any(o == p and k == "app" for o, k, _ in hits):
+    def cell(col, tok):
+        hits = idx[col].get(tok, [])
+        if any(k == "app" for k, _ in hits):
             return "Y"
         return "n" if hits else "N"
 
-    def call_cell(col, p):
+    def calls(col):
         if col == "C":
-            db = cdb.get(p)
+            db = cdb
         elif col == "A":
-            name = {"W": "msgstore.db", "T": "cache4.db", "S": "signal.db"}[p]
-            db = find_named(os.path.join(roots["A"], "apps", PKG[p]), name) if os.path.isdir(roots["A"]) else None
+            db = find_named(os.path.join(roots["A"], "apps", PKG), "signal.db") if os.path.isdir(roots["A"]) else None
         else:
-            db = {"W": wa_db, "T": tg_db}.get(p, lambda r: None)(roots["B"])
-        n = calls(p, db) if db else None
-        return (str(n) if n else "N"), bool(n)
+            db = os.path.join(roots["B"], f"data/data/{PKG}/databases/signal.db")
+        with DbCopy(db) as con:
+            if not con:
+                return "N"
+            n = q1(con, "SELECT count(*) FROM call") if "call" in tables(con) else 0
+            return str(n) if n else "N"
 
-    print(f"Recovered vs activity script  A={a} adb backup  B={b} file system  C=app backup")
-    print("Y = in the app's data   n = only outside it (e.g. notification history)   N = no")
-    print(f"{'id':<9}{'item':<30}{'A':>7}{'B':>7}{'C':>7}")
+    print(f"Signal: recovered vs activity script, per acquisition")
+    print(f"A = {a} adb backup  B = {b} file system (root)  C = {c} Signal backup, decrypted")
+    print("Y = in Signal's data  n = only outside Signal (e.g. notification history) N = no")
+    print(f"{'id':<8}{'scripted action':<36}{'A':>6}{'B':>6}{'C':>6}")
     tot = {"A": 0, "B": 0, "C": 0}
-    cmax = 0
-    for p in "WTS":
-        cdir = {"W": wa, "T": None, "S": sig}[p]
-        cols = ["A", "B"] + (["C"] if cdir and cdir != "-" else [])
-        cmax += 10 if "C" in cols else 0
-        print(f"-- {APP[p]}" + ("   (C = " + cdir + ")" if "C" in cols else "   (C: no local backup)"))
-        rows = []
-        texts = []
-        for c in ("A", "B", "C"):
-            if c in cols:
-                k = sum(cell(c, p, f"{p}{i}") == "Y" for i in range(1, 5))
-                texts.append(f"{k}/4")
-                tot[c] += k
-            else:
-                texts.append("-")
-        rows.append((f"{p}1-{p}4", "text messages", texts))
-        for i, label in ((5, "image sent (caption)"), (6, "image received (caption)"),
-                         (7, "voice call (call records)"), (8, "contact G3-CONTACT"),
-                         (9, "deleted for everyone"), (10, "disappearing message")):
-            vals = []
-            for c in ("A", "B", "C"):
-                if c not in cols:
-                    vals.append("-")
-                    continue
-                if i == 7:
-                    v, good = call_cell(c, p)
-                else:
-                    v = cell(c, p, "CONTACT" if i == 8 else f"{p}{i}")
-                    good = v == "Y"
-                tot[c] += good
-                vals.append(v)
-            rows.append((f"{p}{i}", label, vals))
-        for rid, label, vals in rows:
-            print(f"{rid:<9}{label:<30}{vals[0]:>7}{vals[1]:>7}{vals[2]:>7}")
-    print(f"{'total':<39}{tot['A']:>4}/30{tot['B']:>4}/30{tot['C']:>4}/{cmax}")
+    rows = []
+    vals = []
+    for col in "ABC":
+        k = sum(cell(col, f"S{i}") == "Y" for i in range(1, 5))
+        tot[col] += k
+        vals.append(f"{k}/4")
+    rows.append(("S1-S4", "text messages (2 sent, 2 received)", vals))
+    for i, label in ((5, "image sent (caption)"), (6, "image received (caption)"), (7, "voice call (call records)"),
+                     (8, "contact G3-CONTACT"), (9, "deleted for everyone"), (10, "disappearing message (1 h)"),
+                     (11, "deleted for me only"), (12, "edited: original text"), (13, "edited: new text")):
+        vals = []
+        for col in "ABC":
+            v = calls(col) if i == 7 else cell(col, "CONTACT" if i == 8 else f"S{i}")
+            tot[col] += v not in ("N", "n")
+            vals.append(v)
+        rows.append((f"S{i}", label, vals))
+    for rid, label, v in rows:
+        print(f"{rid:<8}{label:<36}{v[0]:>6}{v[1]:>6}{v[2]:>6}")
+    print(f"{'recovered (of 13)':<44}{tot['A']:>6}{tot['B']:>6}{tot['C']:>6}")
+    notif = sorted({t for t, h in idx["B"].items() if any(k == "notif" for k, _ in h)},
+                   key=lambda t: (len(t), t))
+    print(f"\nTokens readable in Android notification history ({b}): {', '.join(notif) or 'none'}")
 
 
-def locations(token, owner, fs_root, sig_db):
-    """Short labels for where a token survives."""
+def locations(token, fs_root, backup_db):
     labels = []
-    idx = scan_tree(fs_root)
-    for o, kind, rel in idx.get(token, []):
+    for kind, rel in scan_tree(fs_root).get(token, []):
         if kind == "notif":
             labels.append("notif-history")
-        elif kind == "app" and o == owner:
-            if rel.endswith("-wal"):
-                labels.append("wal")
-            elif is_sqlite(os.path.join(fs_root, rel)):
-                with DbCopy(os.path.join(fs_root, rel)) as con:
-                    t = rows_with(con, token + " ") if con else []
-                labels.append("row:" + "+".join(t) if t else "free-page")
-            elif rel.endswith(".db"):
-                labels.append("enc-db")
-            else:
-                labels.append(os.path.basename(rel)[:18])
         elif kind == "app":
-            labels.append(f"other-app:{os.path.basename(rel)[:12]}")
+            path = os.path.join(fs_root, rel)
+            if rel.endswith("-wal"):
+                labels.append("signal-wal")
+            elif is_sqlite(path):
+                with DbCopy(path) as con:
+                    t = rows_with(con, f"G3-{token} ") if con else []
+                labels.append("row:" + "+".join(t) if t else "free-page")
+            else:
+                labels.append("signal:" + os.path.basename(rel)[:16])
         else:
             labels.append(os.path.basename(rel)[:18])
-    if sig_db:
-        with DbCopy(sig_db) as con:
-            t = rows_with(con, token + " ") if con else []
-        labels.append("backup-row:" + "+".join(t) if t else "backup:none")
+    with DbCopy(backup_db) as con:
+        t = rows_with(con, f"G3-{token} ") if con else []
+    labels.append("backup-row:" + "+".join(t) if t else "backup:none")
     seen = []
     for x in labels:
         if x not in seen:
             seen.append(x)
-    return ", ".join(seen) or "none"
+    return ", ".join(seen)
 
 
-def cmd_disappear(before, after, sb, sa):
-    rb, ra = os.path.join("work", before), os.path.join("work", after)
-    print(f"Deleted and disappearing messages: where each one survives")
-    print(f"before = {before} (+{sb} Signal backup)   after = {after} (+{sa} Signal backup)")
-    print("row:<table> = live row  free-page = bytes left in db file  wal = write-ahead log")
-    for tok in ("W9", "W10", "T9", "T10", "S9", "S10"):
-        p = tok[0]
-        b = locations(tok, p, rb, sig_dec(sb) if p == "S" else None)
-        a = locations(tok, p, ra, sig_dec(sa) if p == "S" else None)
-        kind = "deleted" if tok.endswith("9") else "disappearing"
-        print(f"\n{tok:<4}{APP[p]} {kind}")
-        for label, text in (("before", b), ("after ", a)):
-            print(textwrap.fill(text, 80, initial_indent=f"   {label}: ", subsequent_indent=" " * 11))
+def cmd_disappear(fb, fa, bb, ba):
+    rb, ra = os.path.join("work", fb), os.path.join("work", fa)
+    print("Deleted, disappearing and edited Signal messages: where each one survives")
+    print(f"before = {fb} file system + {bb} backup    after = {fa} file system + {ba} backup")
+    print("backup-row:<table> = live row in decrypted backup   notif-history = Android")
+    print("notification history   backup:none = not in the backup")
+    for tok, label in (("S9", "deleted for everyone"), ("S10", "disappearing, 1 hour"),
+                       ("S11", "deleted for me only"), ("S12", "edited: original text"),
+                       ("S13", "edited: new text")):
+        print(f"\n{tok:<4}{label}")
+        for when, root, db in (("before", rb, bdb(bb)), ("after ", ra, bdb(ba))):
+            print(textwrap.fill(locations(tok, root, db), 80, initial_indent=f"   {when}: ", subsequent_indent=" " * 11))
+    flags = []
+    for bid in (bb, ba):
+        with DbCopy(bdb(bid)) as con:
+            n = q1(con, "SELECT count(*) FROM message WHERE remote_deleted = 1") if con else None
+        flags.append(f"{bid}: {n if n is not None else '-'}")
+    print(f"\nRows flagged remote_deleted (text wiped, row kept): {'   '.join(flags)}")
 
 
 def main():
     a = sys.argv[1:]
     cmds = {"hash-add": (cmd_hash_add, 3), "verify": (cmd_verify, 0), "ab2tar": (cmd_ab2tar, 2),
-            "sqlite-check": (cmd_sqlite_check, 1), "storage": (cmd_storage, 2), "score": (cmd_score, 4),
+            "sqlite-check": (cmd_sqlite_check, 1), "storage": (cmd_storage, 2), "score": (cmd_score, 3),
             "disappear": (cmd_disappear, 4)}
     if not a or a[0] not in cmds or len(a) - 1 != cmds[a[0]][1]:
         sys.exit(__doc__)
