@@ -13,3 +13,4 @@ order,id,from,to,action,exact text (type it exactly; token first then a space),m
 12,S13,Emulator,G3-CONTACT,Edit S12: replace the whole text with this,G3-S13 meet at 4 pm,mark S13 after editing
 13,S10,Emulator,G3-CONTACT,Text sent just BEFORE the 1-hour timer was switched on (control),G3-S10 vanish in one hour,
 14,S14,Emulator,G3-CONTACT,Disappearing messages 1 hour ON then text; G3-CONTACT opens it,G3-S14 vanish in one hour,mark S14 after sending (send it LAST)
+15,S15,G3-CONTACT,Emulator,Text received while Signal is in the background (to time a notification),G3-S15 timestamp check,mark S15 when the notification appears

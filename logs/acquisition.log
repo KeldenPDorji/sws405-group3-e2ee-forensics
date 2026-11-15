@@ -16,3 +16,11 @@ Opening from dir!
 [2026-11-15 21:54:31 +0600] [Keldens-MacBook-Air.local] [keldendrac] Signal force-stopped
 [2026-11-15 21:54:59 +0600] [Keldens-MacBook-Air.local] [keldendrac] E04: tar of data/data/org.thoughtcrime.securesms data/media/0/Download data/media/0/Pictures data/media/0/DCIM data/system_ce/0/notification_history data/system/users/0/settings_secure.xml data/data/com.android.providers.contacts data/misc/keystore
 [2026-11-15 21:55:06 +0600] [Keldens-MacBook-Air.local] [keldendrac] E05: tar of /data/media/0/Download/SignalBackups/SignalBackups/{signal-backup-2026-11-15-15-54-16,files}
+ *** Starting log: 2026-11-15 22:14:49 ***
+signalbackup-tools (signalbackup-tools) source version 20261102.083151 (SQLite: 3.54.1, OpenSSL: OpenSSL 3.5.9 29 Sep 2026)
+Opening from dir!
+[Warning]: It appears you are trying to open a Backup V2.
+           This backup format is not currently supported by this tool.
+           See https://github.com/bepaald/signalbackup-tools/issues/382
+[Error]: Failed to open backup
+[2026-11-15 22:14:49 +0600] [Keldens-MacBook-Air.local] [keldendrac] E05 signal backup NOT decrypted
