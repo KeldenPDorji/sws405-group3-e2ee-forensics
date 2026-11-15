@@ -131,6 +131,69 @@ def rows_with(con, needle_text):
     return hits
 
 
+# ------------------------------------------- Android notification history
+def pb_fields(buf):
+    """Minimal protobuf walker: yields (field, wiretype, value). Raises on bad data."""
+    i, n = 0, len(buf)
+    while i < n:
+        key, i = _varint(buf, i)
+        f, wt = key >> 3, key & 7
+        if wt == 0:
+            v, i = _varint(buf, i)
+        elif wt == 1:
+            v, i = int.from_bytes(buf[i:i + 8], "little"), i + 8
+        elif wt == 2:
+            ln, i = _varint(buf, i)
+            v, i = buf[i:i + ln], i + ln
+        elif wt == 5:
+            v, i = int.from_bytes(buf[i:i + 4], "little"), i + 4
+        else:
+            raise ValueError("bad wiretype")
+        if i > n or f == 0:
+            raise ValueError("truncated")
+        yield f, wt, v
+
+
+def _varint(buf, i):
+    r = shift = 0
+    while True:
+        if i >= len(buf) or shift > 63:
+            raise ValueError("bad varint")
+        b = buf[i]
+        i += 1
+        r |= (b & 0x7F) << shift
+        shift += 7
+        if not b & 0x80:
+            return r, i
+
+
+def notif_times(fs_root):
+    """{token: posted_time_ms} from Android notification_history protobuf files."""
+    out = {}
+    base = os.path.join(fs_root or "", "data/system_ce/0/notification_history")
+    for d, _, files in os.walk(base):
+        for name in files:
+            with open(os.path.join(d, name), "rb") as f:
+                data = f.read()
+            try:
+                top = list(pb_fields(data))
+            except ValueError:
+                continue
+            for _, wt, v in top:
+                if wt != 2 or b"G3-" not in v:
+                    continue
+                try:
+                    sub = list(pb_fields(v))
+                except ValueError:
+                    continue
+                ms = [x for _, w, x in sub if w == 0 and 1_600_000_000_000 < x < 2_100_000_000_000]
+                toks = {m.group(1).decode() for _, w, x in sub if w == 2 for m in TOKEN_RE.finditer(x)}
+                for t in toks:
+                    if ms and t not in out:
+                        out[t] = ms[0]
+    return out
+
+
 # ------------------------------------------------------- raw token scanning
 def scan_file(path):
     found = set()
@@ -332,28 +395,39 @@ def cmd_storage(fs, bk):
         with open(ACT_LOG, newline="", encoding="utf-8") as f:
             for r in csv.DictReader(f):
                 logged[r["id"]] = r["host_time_utc+06:00"]
-    print(f"\nTimestamps in backup {bk} vs the time we logged each action")
-    print(f"{'id':<4}{'column':<15}{'raw value (ms)':<16}{'UTC':<10}{'UTC+06:00':<11}{'logged':<10}{'diff':>8}")
+    def row(tid, col, raw):
+        dt = datetime.fromtimestamp(raw / 1000, timezone.utc)
+        loc = dt.astimezone(BT)
+        lg = logged.get(tid, "")
+        diff = ""
+        if lg:
+            diff = f"{(loc - datetime.strptime(lg, '%Y-%m-%d %H:%M:%S').replace(tzinfo=BT)).total_seconds():+.0f} s"
+        print(f"{tid:<5}{col:<14}{raw:<16}{dt:%H:%M:%S}  {loc:%H:%M:%S}   {lg[11:] or '-':<10}{diff:>8}")
+        return loc.strftime("%Y-%m-%d")
+
+    hdr = f"{'id':<5}{'column':<14}{'raw value (ms)':<16}{'UTC':<10}{'UTC+06:00':<11}{'logged':<10}{'diff':>8}"
     day = None
     with DbCopy(db) as con:
-        for tid in ("S1", "S2"):
-            for col in ("date_sent", "date_received", "date_server"):
-                raw = q1(con, f"SELECT {col} FROM message WHERE body LIKE ?", (f"G3-{tid} %",)) if con else None
-                if not raw or raw <= 0:
-                    print(f"{tid:<4}{col:<15}{'-' if raw is None else raw}")
-                    continue
-                dt = datetime.fromtimestamp(raw / 1000, timezone.utc)
-                loc = dt.astimezone(BT)
-                day = loc.strftime("%Y-%m-%d")
-                lg = logged.get(tid, "")
-                diff = ""
-                if lg:
-                    diff = f"{(loc - datetime.strptime(lg, '%Y-%m-%d %H:%M:%S').replace(tzinfo=BT)).total_seconds():+.0f} s"
-                print(f"{tid:<4}{col:<15}{raw:<16}{dt:%H:%M:%S}  {loc:%H:%M:%S}   {lg[11:] or '-':<10}{diff:>8}")
+        if con:
+            print(f"\nTimestamps in backup {bk} vs the time we logged each action")
+            print(hdr)
+            for tid in ("S1", "S2", "S14", "S15"):
+                for col in ("date_sent", "date_received"):
+                    raw = q1(con, f"SELECT {col} FROM message WHERE body LIKE ?", (f"G3-{tid} %",))
+                    if raw and raw > 0:
+                        day = row(tid, col, raw)
+    if day is None:
+        nt = notif_times(root)
+        print(f"\nBackup {bk} not readable, so timestamps come from Android notification")
+        print(f"history in {fs} (posted_time_ms of each Signal notification)")
+        print(hdr)
+        for tid in sorted((t for t in nt if t.startswith("S")), key=lambda t: (len(t), t)):
+            day = row(tid, "posted_time", nt[tid])
+        if not nt:
+            print("  no G3 tokens in notification history")
     if day:
-        print(f"date {day}. Signal stores ms since 1970 UTC. Bhutan = UTC+06:00, no DST")
-        print("S1 = sent by the emulator, S2 = received from G3-CONTACT. diff = stored-logged")
-
+        print(f"date {day}. Stored as ms since 1970 UTC. Bhutan = UTC+06:00, no DST")
+        print("logged = time we ran 'mark'.  diff = stored minus logged")
 
 def cmd_score(a, b, c):
     roots = {"A": os.path.join("work", a), "B": os.path.join("work", b)}
@@ -381,7 +455,8 @@ def cmd_score(a, b, c):
             return str(n) if n else "N"
 
     print(f"Signal: recovered vs activity script, per acquisition")
-    print(f"A = {a} adb backup  B = {b} file system (root)  C = {c} Signal backup, decrypted")
+    cl = "decrypted" if idx["C"] else "NOT decryptable"
+    print(f"A = {a} adb backup  B = {b} file system (root)  C = {c} Signal backup, {cl}")
     print("Y = in Signal's data  n = only outside Signal (e.g. notification history) N = no")
     print(f"{'id':<8}{'scripted action':<36}{'A':>6}{'B':>6}{'C':>6}")
     tot = {"A": 0, "B": 0, "C": 0}
@@ -393,8 +468,9 @@ def cmd_score(a, b, c):
         vals.append(f"{k}/4")
     rows.append(("S1-S4", "text messages (2 sent, 2 received)", vals))
     for i, label in ((5, "image sent (caption)"), (6, "image received (caption)"), (7, "voice call (call records)"),
-                     (8, "contact G3-CONTACT"), (9, "deleted for everyone"), (10, "disappearing message (1 h)"),
-                     (11, "deleted for me only"), (12, "edited: original text"), (13, "edited: new text")):
+                     (8, "contact G3-CONTACT"), (9, "deleted for everyone"), (10, "sent before timer (control)"),
+                     (11, "deleted for me only"), (12, "edited: original text"), (13, "edited: new text"),
+                     (14, "disappearing message (1 h)")):
         vals = []
         for col in "ABC":
             v = calls(col) if i == 7 else cell(col, "CONTACT" if i == 8 else f"S{i}")
@@ -403,7 +479,7 @@ def cmd_score(a, b, c):
         rows.append((f"S{i}", label, vals))
     for rid, label, v in rows:
         print(f"{rid:<8}{label:<36}{v[0]:>6}{v[1]:>6}{v[2]:>6}")
-    print(f"{'recovered (of 13)':<44}{tot['A']:>6}{tot['B']:>6}{tot['C']:>6}")
+    print(f"{'recovered (of 14)':<44}{tot['A']:>6}{tot['B']:>6}{tot['C']:>6}")
     notif = sorted({t for t, h in idx["B"].items() if any(k == "notif" for k, _ in h)},
                    key=lambda t: (len(t), t))
     print(f"\nTokens readable in Android notification history ({b}): {', '.join(notif) or 'none'}")
@@ -442,7 +518,8 @@ def cmd_disappear(fb, fa, bb, ba):
     print(f"before = {fb} file system + {bb} backup    after = {fa} file system + {ba} backup")
     print("backup-row:<table> = live row in decrypted backup   notif-history = Android")
     print("notification history   backup:none = not in the backup")
-    for tok, label in (("S9", "deleted for everyone"), ("S10", "disappearing, 1 hour"),
+    for tok, label in (("S9", "deleted for everyone"), ("S10", "control: sent before timer"),
+                       ("S14", "disappearing, 1 hour"),
                        ("S11", "deleted for me only"), ("S12", "edited: original text"),
                        ("S13", "edited: new text")):
         print(f"\n{tok:<4}{label}")

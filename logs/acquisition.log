@@ -1,2 +1,15 @@
 [2026-11-15 19:45:14 +0600] [Keldens-MacBook-Air.local] [keldendrac] env checked
 [2026-11-15 19:47:11 +0600] [Keldens-MacBook-Air.local] [keldendrac] env checked
+[2026-11-15 20:42:16 +0600] [Keldens-MacBook-Air.local] [keldendrac] Signal force-stopped
+[2026-11-15 20:42:22 +0600] [Keldens-MacBook-Air.local] [keldendrac] E02: tar of data/data/org.thoughtcrime.securesms data/media/0/Download data/media/0/Pictures data/media/0/DCIM data/system_ce/0/notification_history data/system/users/0/settings_secure.xml data/data/com.android.providers.contacts data/misc/keystore
+[2026-11-15 20:42:28 +0600] [Keldens-MacBook-Air.local] [keldendrac] E03: tar of /data/media/0/Download/SignalBackups/SignalBackups/{signal-backup-2026-11-15-14-41-58,files}
+WARNING: adb backup is deprecated and may be removed in a future release
+Now unlock your device and confirm the backup operation...
+ *** Starting log: 2026-11-15 20:45:10 ***
+signalbackup-tools (signalbackup-tools) source version 20261102.083151 (SQLite: 3.54.1, OpenSSL: OpenSSL 3.5.9 29 Sep 2026)
+Opening from dir!
+[Warning]: It appears you are trying to open a Backup V2.
+           This backup format is not currently supported by this tool.
+           See https://github.com/bepaald/signalbackup-tools/issues/382
+[Error]: Failed to open backup
+[2026-11-15 20:45:10 +0600] [Keldens-MacBook-Air.local] [keldendrac] E03 signal backup NOT decrypted

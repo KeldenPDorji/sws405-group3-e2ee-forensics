@@ -1,0 +1,4 @@
+evidence_id,path,size_bytes,sha256,time_utc+06:00,host,user,event,note
+E02,evidence/E02_fs.tar,39191552,16e58350f443593bd58406ed4c634b0582016ae96bf3427a5d57d853643ad6db,2026-11-15 20:42:24,Keldens-MacBook-Air.local,keldendrac,acquired,file-system tar
+E03,evidence/E03_signal_backup.tar,835584,2abe874ad0c63dea68267143ecfa3f66e42bfdacbcb00acfe4292534daface38,2026-11-15 20:42:28,Keldens-MacBook-Air.local,keldendrac,acquired,Signal on-device backup signal-backup-2026-11-15-14-41-58
+E01,evidence/E01_adb.ab,5300,6f7ef67eb3c09f7f2ad3b2c2c177bda2b22ea2cd9fba8992916bfbbe5064793c,2026-11-15 20:43:12,Keldens-MacBook-Air.local,keldendrac,acquired,adb backup

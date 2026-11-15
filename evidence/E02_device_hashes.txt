@@ -1,0 +1,2 @@
+b99cc20c1d1b526dcc3d3bcf3c6e4c7aee01a47689425882ac91c791e656d50f  /data/data/org.thoughtcrime.securesms/databases/signal.db  work/E02/data/data/org.thoughtcrime.securesms/databases/signal.db
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  /data/data/org.thoughtcrime.securesms/databases/signal.db-wal  work/E02/data/data/org.thoughtcrime.securesms/databases/signal.db-wal
