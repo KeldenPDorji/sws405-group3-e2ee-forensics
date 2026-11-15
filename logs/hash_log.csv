@@ -2,3 +2,14 @@ evidence_id,path,size_bytes,sha256,time_utc+06:00,host,user,event,note
 E02,evidence/E02_fs.tar,39191552,16e58350f443593bd58406ed4c634b0582016ae96bf3427a5d57d853643ad6db,2026-11-15 20:42:24,Keldens-MacBook-Air.local,keldendrac,acquired,file-system tar
 E03,evidence/E03_signal_backup.tar,835584,2abe874ad0c63dea68267143ecfa3f66e42bfdacbcb00acfe4292534daface38,2026-11-15 20:42:28,Keldens-MacBook-Air.local,keldendrac,acquired,Signal on-device backup signal-backup-2026-11-15-14-41-58
 E01,evidence/E01_adb.ab,5300,6f7ef67eb3c09f7f2ad3b2c2c177bda2b22ea2cd9fba8992916bfbbe5064793c,2026-11-15 20:43:12,Keldens-MacBook-Air.local,keldendrac,acquired,adb backup
+E04,evidence/E04_fs.tar,40970752,9039bff048784cc3944c18f886c4eb44cc3a57af7e05f5e659780ecb99253d66,2026-11-15 21:55:01,Keldens-MacBook-Air.local,keldendrac,acquired,file-system tar
+E05,evidence/E05_signal_backup.tar,835584,0614ce24821d910673e0fc975d95a9ff05024b03b3c46afb03038ecbe9634ef1,2026-11-15 21:55:06,Keldens-MacBook-Air.local,keldendrac,acquired,Signal on-device backup signal-backup-2026-11-15-15-54-16
+E06,outputs/E06_chat_after.png,1369043,757b6c5ef5dc7403450a3acef563aeceb36e15ef4ae7902a0da3d92777e362ba,2026-11-15 21:59:26,Keldens-MacBook-Air.local,keldendrac,acquired,adb screencap: Signal chat after S14 expired
+E07,outputs/E07_chat_after.png,226600,fee9c0157f6bf16c83246ec96964f805bff417b2631ce50097c2f475294cd902,2026-11-15 22:01:53,Keldens-MacBook-Air.local,keldendrac,acquired,adb screencap: Signal chat after S14 expired
+E02,evidence/E02_fs.tar,39191552,16e58350f443593bd58406ed4c634b0582016ae96bf3427a5d57d853643ad6db,2026-11-15 22:06:26,Keldens-MacBook-Air.local,keldendrac,verify:MATCH,
+E03,evidence/E03_signal_backup.tar,835584,2abe874ad0c63dea68267143ecfa3f66e42bfdacbcb00acfe4292534daface38,2026-11-15 22:06:26,Keldens-MacBook-Air.local,keldendrac,verify:MATCH,
+E01,evidence/E01_adb.ab,5300,6f7ef67eb3c09f7f2ad3b2c2c177bda2b22ea2cd9fba8992916bfbbe5064793c,2026-11-15 22:06:26,Keldens-MacBook-Air.local,keldendrac,verify:MATCH,
+E04,evidence/E04_fs.tar,40970752,9039bff048784cc3944c18f886c4eb44cc3a57af7e05f5e659780ecb99253d66,2026-11-15 22:06:26,Keldens-MacBook-Air.local,keldendrac,verify:MATCH,
+E05,evidence/E05_signal_backup.tar,835584,0614ce24821d910673e0fc975d95a9ff05024b03b3c46afb03038ecbe9634ef1,2026-11-15 22:06:26,Keldens-MacBook-Air.local,keldendrac,verify:MATCH,
+E06,outputs/E06_chat_after.png,1369043,757b6c5ef5dc7403450a3acef563aeceb36e15ef4ae7902a0da3d92777e362ba,2026-11-15 22:06:26,Keldens-MacBook-Air.local,keldendrac,verify:MATCH,
+E07,outputs/E07_chat_after.png,226600,fee9c0157f6bf16c83246ec96964f805bff417b2631ce50097c2f475294cd902,2026-11-15 22:06:26,Keldens-MacBook-Air.local,keldendrac,verify:MATCH,

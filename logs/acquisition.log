@@ -13,3 +13,6 @@ Opening from dir!
            See https://github.com/bepaald/signalbackup-tools/issues/382
 [Error]: Failed to open backup
 [2026-11-15 20:45:10 +0600] [Keldens-MacBook-Air.local] [keldendrac] E03 signal backup NOT decrypted
+[2026-11-15 21:54:31 +0600] [Keldens-MacBook-Air.local] [keldendrac] Signal force-stopped
+[2026-11-15 21:54:59 +0600] [Keldens-MacBook-Air.local] [keldendrac] E04: tar of data/data/org.thoughtcrime.securesms data/media/0/Download data/media/0/Pictures data/media/0/DCIM data/system_ce/0/notification_history data/system/users/0/settings_secure.xml data/data/com.android.providers.contacts data/misc/keystore
+[2026-11-15 21:55:06 +0600] [Keldens-MacBook-Air.local] [keldendrac] E05: tar of /data/media/0/Download/SignalBackups/SignalBackups/{signal-backup-2026-11-15-15-54-16,files}

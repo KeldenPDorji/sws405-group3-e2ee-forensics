@@ -167,12 +167,12 @@ def _varint(buf, i):
             return r, i
 
 
-def notif_times(fs_root):
-    """{token: posted_time_ms} from Android notification_history protobuf files."""
-    out = {}
+def notif_entries(fs_root):
+    """[(label, posted_time_ms)] for Signal notifications in Android notification_history."""
+    out = []
     base = os.path.join(fs_root or "", "data/system_ce/0/notification_history")
     for d, _, files in os.walk(base):
-        for name in files:
+        for name in sorted(files):
             with open(os.path.join(d, name), "rb") as f:
                 data = f.read()
             try:
@@ -180,19 +180,21 @@ def notif_times(fs_root):
             except ValueError:
                 continue
             for _, wt, v in top:
-                if wt != 2 or b"G3-" not in v:
+                if wt != 2 or PKG.encode() not in v:
                     continue
                 try:
                     sub = list(pb_fields(v))
                 except ValueError:
                     continue
                 ms = [x for _, w, x in sub if w == 0 and 1_600_000_000_000 < x < 2_100_000_000_000]
-                toks = {m.group(1).decode() for _, w, x in sub if w == 2 for m in TOKEN_RE.finditer(x)}
-                for t in toks:
-                    if ms and t not in out:
-                        out[t] = ms[0]
-    return out
-
+                if not ms:
+                    continue
+                fld = {f: x.decode("utf-8", "replace") for f, w, x in sub if w == 2}
+                tok = next((m.group(1).decode() for _, w, x in sub if w == 2
+                            for m in TOKEN_RE.finditer(x) if m.group(1).startswith(b"S")), None)
+                text = fld.get(11) or fld.get(10) or "?"   # field 11 = text, 10 = title
+                out.append((tok or text, ms[0]))
+    return sorted(set(out), key=lambda e: e[1])
 
 # ------------------------------------------------------- raw token scanning
 def scan_file(path):
@@ -417,14 +419,23 @@ def cmd_storage(fs, bk):
                     if raw and raw > 0:
                         day = row(tid, col, raw)
     if day is None:
-        nt = notif_times(root)
-        print(f"\nBackup {bk} not readable, so timestamps come from Android notification")
-        print(f"history in {fs} (posted_time_ms of each Signal notification)")
-        print(hdr)
-        for tid in sorted((t for t in nt if t.startswith("S")), key=lambda t: (len(t), t)):
-            day = row(tid, "posted_time", nt[tid])
-        if not nt:
-            print("  no G3 tokens in notification history")
+        ents = notif_entries(root)
+        print(f"\nBackup {bk} not readable, so timestamps come from Signal notifications in")
+        print(f"Android notification history ({fs}), field posted_time_ms")
+        print(f"{'notification text':<25}{'raw value (ms)':<16}{'UTC':<10}{'UTC+06:00':<11}{'logged':<9}{'diff':>7}")
+        for label, raw in ents:
+            dt = datetime.fromtimestamp(raw / 1000, timezone.utc)
+            loc = dt.astimezone(BT)
+            lg = logged.get(label, "")
+            diff = ""
+            if lg:
+                diff = f"{(loc - datetime.strptime(lg, '%Y-%m-%d %H:%M:%S').replace(tzinfo=BT)).total_seconds():+.0f} s"
+            print(f"{label[:24]:<25}{raw:<16}{dt:%H:%M:%S}  {loc:%H:%M:%S}   {lg[11:] or '-':<9}{diff:>7}")
+            day = loc.strftime("%Y-%m-%d")
+        if not ents:
+            print("  no Signal notifications in notification history")
+        elif all(lb not in logged for lb, _ in ents):
+            print("compare: Signal chat shows the S7 call time; the call is not in 'mark' log")
     if day:
         print(f"date {day}. Stored as ms since 1970 UTC. Bhutan = UTC+06:00, no DST")
         print("logged = time we ran 'mark'.  diff = stored minus logged")
