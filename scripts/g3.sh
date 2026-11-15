@@ -7,8 +7,8 @@
 #   stop-app                 force-stop Signal; show airplane mode
 #   fs <ID>                  file-system acquisition: tar of Signal data, media, notification history
 #   adb-backup <ID>          logical acquisition: adb backup (confirm on the emulator screen)
-#   signal-backup <ID>       pull the newest Signal on-device backup from /sdcard/Download
-#   decrypt <ID> <passphrase>   decrypt Signal backup <ID> with its 30-digit passphrase
+#   signal-backup <ID>       pull the newest Signal backup snapshot folder + files/ store
+#   decrypt <ID> <key>       try to decrypt backup <ID> with its 64-character recovery key
 #
 # Every acquisition is hashed into logs/hash_log.csv. Details go to logs/acquisition.log.
 set -uo pipefail
@@ -104,28 +104,47 @@ cmd_adb_backup() {
   "${G3PY[@]}" ab2tar "$abf" "work/$id"
 }
 
+# Signal 8.x on-device backups (new format) are a folder, not one file:
+#   <chosen folder>/SignalBackups/signal-backup-YYYY-MM-DD-HH-MM-SS/   one snapshot
+#   <chosen folder>/SignalBackups/files/00..ff/                       shared attachment store
+# The newest snapshot folder plus files/ are pulled as one tar and hashed.
 cmd_signal_backup() {
   local id="${1:?usage: signal-backup <ID>}"
   need_root
-  local f; f="$(devsh "ls -t /sdcard/Download/signal-*.backup 2>/dev/null | head -1")"
-  if [[ -z $f ]]; then
-    echo "  $id: no signal-*.backup in /sdcard/Download (check the folder chosen in Signal)"; exit 1
+  local snap
+  snap="$(devsh "ls -dt /data/media/0/Download/*/signal-backup-* /data/media/0/Download/*/*/signal-backup-* 2>/dev/null | head -1")"
+  if [[ -z $snap ]]; then
+    echo "  $id: no signal-backup-* folder under Download (tap Create backup in Signal first)"; exit 1
   fi
-  local dest="evidence/${id}_signal.backup"
-  echo "$(devsh sha256sum "$f" | cut -d' ' -f1)  $f  $dest" > "evidence/${id}_device_hashes.txt"
-  adb pull -a "$f" "$dest" >> "$LOG" 2>&1
-  "${G3PY[@]}" hash-add "$dest" "$id" "Signal on-device backup ${f##*/}"
+  local parent="${snap%/*}" name="${snap##*/}"
+  local tarf="evidence/${id}_signal_backup.tar" hashes="evidence/${id}_device_hashes.txt" out="work/$id/raw"
+  [[ -e $tarf ]] && { echo "ERROR: $tarf exists; pick a new ID"; exit 1; }
+  : > "$hashes"
+  local f
+  for f in $(devsh "ls $snap"); do
+    echo "$(devsh sha256sum "$snap/$f" | cut -d' ' -f1)  $snap/$f  $out/$name/$f" >> "$hashes"
+  done
+  log "$id: tar of $parent/{$name,files}"
+  adb exec-out "tar -cf - -C $parent $name files 2>/dev/null" > "$tarf"
+  mkdir -p "$out"
+  tar -xf "$tarf" -C "$out" >> "$LOG" 2>&1 || log "$id: some entries could not be extracted"
+  "${G3PY[@]}" hash-add "$tarf" "$id" "Signal on-device backup $name"
+  echo "  snapshot $name: $(wc -l < "$hashes" | tr -d ' ') files hashed on device; files/ store $(find "$out/files" -type f | wc -l | tr -d ' ') attachments"
 }
 
 cmd_decrypt() {
-  local id="${1:?usage: decrypt <ID> <passphrase>}"; shift
-  local pass="${*// /}"
-  rm -rf "work/$id"; mkdir -p "work/$id"
-  if "$SIGTOOL" "evidence/${id}_signal.backup" "$pass" --output "work/$id" --onlydb >> "$LOG" 2>&1 && [[ -s work/$id/database.sqlite ]]; then
+  local id="${1:?usage: decrypt <ID> <recovery key>}"; shift
+  local key="${*// /}"
+  local snap; snap="$(ls -d "work/$id"/raw/signal-backup-* 2>/dev/null | tail -1)"
+  [[ -z $snap ]] && { echo "  $id: no extracted snapshot in work/$id/raw"; exit 1; }
+  rm -rf "work/$id/dec" "work/$id/database.sqlite"; mkdir -p "work/$id/dec"
+  if "$SIGTOOL" "$snap" "$key" --output "work/$id/dec" --onlydb >> "$LOG" 2>&1 && [[ -s work/$id/dec/database.sqlite ]]; then
+    mv "work/$id/dec/database.sqlite" "work/$id/database.sqlite"
     echo "  $id: decrypted -> work/$id/database.sqlite ($("${G3PY[@]}" sqlite-check "work/$id/database.sqlite"))"
     log "$id signal backup decrypted"
   else
-    echo "  $id: decryption failed (details in $LOG)"
+    echo "  $id: decryption failed: $(grep -v '^[[:space:]]*$' "$LOG" | tail -1 | cut -c1-70)"
+    log "$id signal backup NOT decrypted"
   fi
 }
 

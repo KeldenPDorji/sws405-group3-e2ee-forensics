@@ -230,6 +230,8 @@ def cmd_verify():
                 st = "MATCH" if hh == dh else ("MISSING" if not hh else "MISMATCH")
                 dok += st == "MATCH"
                 short = dpath.replace(f"/data/data/{PKG}/", "/data/data/<signal>/")
+                if "/signal-backup-" in dpath:
+                    short = "<backup folder>/" + "/".join(dpath.split("/")[-2:])
                 print(f"  {st:<8} {eid:<4} {short[-60:]}")
     print(f"\n{ok}/{len(rows)} exhibits unchanged since acquisition; {dok}/{dn} device hashes match host copies.")
     sys.exit(0 if ok == len(rows) and dok == dn else 1)
